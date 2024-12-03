@@ -1,6 +1,6 @@
 '''
 郴州市政府
-- 政务要闻板块 
+- 政务要闻板块
 - 增量爬虫，只抓增量数据
 新闻列表页URL:https://www.czs.gov.cn/html/dtxx/zwdt/zwyw/default_1.htm
 
@@ -50,8 +50,11 @@ def retry(max_retries=3, delay=1):
 
 @retry(max_retries=3, delay=3)
 def get_response(url):
+    #  使用requests 模拟发起get请求，获取网页报文
     response = requests.get(url, headers=headers)
+    # 设置内容编码格式 防止中文乱码
     response.encoding = response.apparent_encoding
+    # 判断状态码是否 200  200表示请求成功
     if response.status_code == 200:
         return response
     raise Exception(f"get_response - url请求失败，状态码: {response.status_code}")
@@ -60,8 +63,9 @@ def get_response(url):
 def list_page(url):
     response = get_response(url)
     doc = etree.HTML(response.text)
-    # title = doc.xpath('//div[@class="yaowennr-box"]//li/a/@title')
-    hrefs = doc.xpath('//div[@class="yaowennr-box"]//li/a/@href')
+    # 使用xpath解析器解析网页源代码 提取网页元素
+    # title = doc.xpath('//div[@class="yaowennr-box"]//li/a/@title')  # 提取标题
+    hrefs = doc.xpath('//div[@class="yaowennr-box"]//li/a/@href')  # 提取详情页链接
     new_hrefs = []
     for href in hrefs:
         # 过滤掉转发新闻数据 方便后续处理
@@ -74,10 +78,11 @@ def list_page(url):
 def parse_detail_page(url):
     response = get_response(url)
     doc = etree.HTML(response.text)
-    new_title = doc.xpath('//div[@class="zhengcebiaoti"]//text()')
-    release_time = doc.xpath('//div[@class="fabushijian"]//text()')
-    publish_source = doc.xpath('//div[@class="fabulaiyuan"]//text()')
-    content = doc.xpath('//div[@class="wjnerong"]//text()')
+    # 使用xpath解析器解析网页源代码 提取网页元素
+    new_title = doc.xpath('//div[@class="zhengcebiaoti"]//text()')  # 标题
+    release_time = doc.xpath('//div[@class="fabushijian"]//text()')  # 发表时间
+    publish_source = doc.xpath('//div[@class="fabulaiyuan"]//text()')  # 来源
+    content = doc.xpath('//div[@class="wjnerong"]//text()')  # 正文内容
     content = ''.join(content)  # 拼接新闻正文内容
     # 去除非必要字符
     content = content.replace('\n', '').replace('\r', '').replace('\t', '').replace('\u3000', '')  # 拼接新闻正文内容
