@@ -1,9 +1,7 @@
 '''
 郴州市政府
-- 政务要闻板块
-- 增量爬虫，只抓增量数据
+- 全量爬虫，过往所有数据
 新闻列表页URL:https://www.czs.gov.cn/html/dtxx/zwdt/zwyw/default_1.htm
-
 '''
 import time
 import functools
@@ -11,21 +9,42 @@ import functools
 import requests
 from lxml import etree
 
-from mytools.tools import retry
-
 
 # 列表页
 index_list_page_url = 'https://www.czs.gov.cn/html/dtxx/zwdt/zwyw/default.htm'  # 第一页
-news_list_page_url = 'https://www.czs.gov.cn/html/dtxx/zwdt/zwyw/default_{}.htm'  # 翻页替换url
+news_list_page_url = 'https://www.czs.gov.cn/html/dtxx/zwdt/zwyw/default_{}.htm' # 翻页替换url
 
 # 详情页url统一前缀
 detail_prefix_url = 'https://www.czs.gov.cn/html/dtxx/zwdt/zwyw/'
 # headers
 headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
 }
 
-
+# 用于错误自动重试
+def retry(max_retries=3, delay=1):
+    """
+    错误重试装饰器
+    :param max_retries: 最大重试次数
+    :param delay: 每次重试前的延迟时间（秒）
+    :return: 装饰器函数
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(1, max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    print(f"尝试 {attempt} 失败: {e}， {delay} 秒后重试...")   # Retrying in 3 seconds
+                    time.sleep(delay)
+            # 如果最大重试次数用完后依然抛出异常，则抛出最后捕获的异常
+            print(f"All {max_retries} attempts failed.")
+            raise last_exception
+        return wrapper
+    return decorator
 
 @retry(max_retries=3, delay=3)
 def get_response(url):
@@ -37,7 +56,6 @@ def get_response(url):
     if response.status_code == 200:
         return response
     raise Exception(f"get_response - url请求失败，状态码: {response.status_code}")
-
 
 # 请求列表页 获取所有新闻详情页url
 def list_page(url):
@@ -54,7 +72,6 @@ def list_page(url):
             new_hrefs.append(href)
     print(new_hrefs)
     return new_hrefs
-
 
 def parse_detail_page(url):
     response = get_response(url)
@@ -83,10 +100,9 @@ def save_data(data):
     content = data['content']
     print(f"正在保存新闻：【{title}】")
     file_name = title
-    with open(f'download/{file_name}.txt', 'a', encoding='utf-8') as f:
+    with open(f'news/{file_name}.txt', 'a',encoding='utf-8') as f:
         f.write(content)
     f.close()
-
 
 def main():
     try:
