@@ -10,6 +10,8 @@ import requests
 from lxml import etree
 
 
+
+
 # 列表页
 index_list_page_url = 'https://www.czs.gov.cn/html/dtxx/zwdt/zwyw/default.htm'  # 第一页
 news_list_page_url = 'https://www.czs.gov.cn/html/dtxx/zwdt/zwyw/default_{}.htm' # 翻页替换url

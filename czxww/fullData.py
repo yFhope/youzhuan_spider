@@ -82,13 +82,14 @@ def get_detail_page_data(detail_url, plate_name=None):
     item['author'] = author
     item['source'] = source
     item['release_date'] = date_obj # release_date
+    item['url'] = detail_url
     item['content'] = content
     item['ctime'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     return item
 
 # 存储数据到数据库
 def save_data(data, plate_name=None):
-    sql = 'insert into czxww(plate_name,title,author,source,release_date,content,ctime) values(%s,%s,%s,%s,%s,%s,%s)'
+    sql = 'insert into czxww(plate_name,title,author,source,release_date,url,content,ctime) values(%s,%s,%s,%s,%s,%s,%s,%s)'
     results = db.insert_one(sql, list(data.values()))
 
 def start():

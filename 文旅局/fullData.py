@@ -1,51 +1,50 @@
 '''
 郴州文旅爬虫
+- todo 郴州要览 + 通知公告 两个板块爬虫
 -  全量爬虫
 - 只抓发文数量，不抓详情内容
 
 '''
-
-import time
-import functools
-
 import requests
 from lxml import etree
+from fake_useragent import UserAgent
+from datetime import datetime
+
+from pymysql.err import IntegrityError
+
+from mytools.tools import retry
+from mytools.db_toolbox import SQLHelper
 
 # 列表页url
 # index_url = 'http://www.app.czs.gov.cn/lywsj/zwgk/lydt/default.jsp?pager.offset=0&pager.desc=false'
+
+db = SQLHelper()
+
+plate_name = {
+    'tzgg':('通知公告',721),
+    'czyl':('郴州要览',5091),
+    # 'tslm':'xxx',
+    # 'wmcj':('文明创建',150),
+}
+
+# 通知公告
+url_list = {
+    'tzgg':'http://www.app.czs.gov.cn/lywsj/zwgk/tzgg/default.jsp?pager.offset={}&pager.desc=false',  # 通知公告
+    'czyl':'http://www.app.czs.gov.cn/lywsj/zwgk/lydt/default.jsp?pager.offset={}&pager.desc=false',  # 郴州要览
+    # 'tslm':'xxx',
+    # 'wmcj':'http://www.app.czs.gov.cn/lywsj/zthd/57126/index.jsp?pager.offset={}&pager.desc=false',   # 文明创建
+}
 
 # headers
 headers = {
     'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
 }
 
-# 用于错误自动重试
-def retry(max_retries=3, delay=1):
-    """
-    错误重试装饰器
-    :param max_retries: 最大重试次数
-    :param delay: 每次重试前的延迟时间（秒）
-    :return: 装饰器函数
-    """
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_exception = None
-            for attempt in range(1, max_retries + 1):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_exception = e
-                    print(f"尝试 {attempt} 失败: {e}， {delay} 秒后重试...")   # Retrying in 3 seconds
-                    time.sleep(delay)
-            # 如果最大重试次数用完后依然抛出异常，则抛出最后捕获的异常
-            print(f"All {max_retries} attempts failed.")
-            raise last_exception
-        return wrapper
-    return decorator
 
 @retry(max_retries=3, delay=3)
 def get_response(url):
+    ua = UserAgent()
+    headers['User-Agent'] = ua.random
     response = requests.get(url, headers=headers)
     response.encoding = response.apparent_encoding
     if response.status_code == 200:
@@ -59,31 +58,36 @@ def parse_list_page(url):
     release_time = doc.xpath('//*[@class="fz-tab"]/table/tbody/tr/td[3]/text()')
     # 获取当前页所有新闻的详情页url  - 用于后续计数
     hrefs = doc.xpath('//*[@class="fz-tab"]/table/tbody/tr//a/@href')
+    titles = doc.xpath('//*[@class="fz-tab"]/table/tbody/tr//a/text()')
     item = {}
+    item['titles'] = titles
     item['hrefs'] = hrefs
     item['release_time'] = release_time
-    item['count'] = len(hrefs)
     return item
 
-def main():
-    # offset=5090  查看文旅局 - 郴州要览板块 发现一共5090页,且翻页数字每偏移10为翻一页
-    # 这里只做演示，实际会把链接和发表时间存储到数据库，再做汇总统计
-    total = 0
-    # for offset in range(0,5091,10):  # 全部页面
-    for offset in range(0,51,10):  # 只抓几页做测试
-        index_url = f'http://www.app.czs.gov.cn/lywsj/zwgk/lydt/default.jsp?pager.offset={offset}&pager.desc=false'
-        print("========================================================================================================")
-        print("正在抓取：",index_url)
-        item = parse_list_page(index_url)
-        count = item['count']
-        print("当前页数据:")
-        print(item['release_time'])
-        print(item['hrefs'])
-        total += count
-    print(f"郴州文旅 - 郴州要览 - 当前总新闻数：{total}")
+def save_data(plate_name,title,href,rtime):
+    sql = 'insert into wenlvju(plate_name,title,url,release_time,ctime) values(%s,%s,%s,%s,%s)'
+    rtime = datetime.strptime(rtime, "%Y-%m-%d")
+    ctime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        db.insert_one(sql,(plate_name,title,href,rtime,ctime))
+    except IntegrityError:
+        print("数据重复")
+
+
+def start():
+    for key,index_url in url_list.items():
+        p_name = plate_name[key][0]
+        page_number = plate_name[key][1]
+        for offset in range(0,page_number,10):  # 只抓几页做测试
+            print("========================================================================================================")
+            print("正在抓取：",index_url.format(offset))
+            item = parse_list_page(index_url.format(offset))
+            for title,href,rtime in zip(item['titles'],item['hrefs'],item['release_time']):
+                save_data(p_name,title,href,rtime)
 
 
 
 if __name__ == '__main__':
-    main()
+    start()
 
