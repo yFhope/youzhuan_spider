@@ -7,9 +7,8 @@
 '''
 import requests
 from lxml import etree
-from fake_useragent import UserAgent
 from datetime import datetime
-
+from fake_useragent import UserAgent
 from pymysql.err import IntegrityError
 
 from mytools.tools import retry
