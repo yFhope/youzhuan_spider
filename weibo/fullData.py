@@ -10,6 +10,7 @@ import time
 import random
 import pymysql
 import requests
+import urllib.parse
 from jsonpath import jsonpath
 
 
@@ -20,18 +21,19 @@ class WeiBo:
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 10_3_1 like Mac OS X) AppleWebKit/603.1.30 (KHTML, like Gecko) Version/10.0 Mobile/14E304 Safari/602.1',
             'Referer': 'https://m.weibo.cn/detail/4813628149072458',
-            'cookie': 'SCF=AhLNFup1PSAIQvfRs0LsF4ZWlu6OHeqhfP493lnPE6gpv90kJr6pdPq5ldui2vKI8mGzNhJVh3migfFLcjBgR1g.; _T_WM=11169871468; WEIBOCN_FROM=1110003030; MLOGIN=0; XSRF-TOKEN=21abca; M_WEIBOCN_PARAMS=luicode%3D10000011%26lfid%3D100103type%253D61%2526q%253D%25E9%25AB%2598%25E6%25A4%2585%25E5%25B2%25AD%2526t%253D%26fid%3D100103type%253D61%2526q%253D%25E9%25AB%2598%25E6%25A4%2585%25E5%25B2%25AD%2526t%253D%26uicode%3D10000011'
+            'cookie': '_T_WM=11581596339; WEIBOCN_FROM=1110003030; SCF=AiJsIR89CSyo1Ywjtc-RkKphdKcdnTYJRyAWlj0RBrIWK5cHAlhz1rRCGLKvMwJXYp869OozhF1TbAtXyRKiWZA.; SUB=_2A25KZQfwDeRhGeBM4lQX-SjJwjiIHXVpGwU4rDV6PUJbktAbLXmmkW1NRLngcRHL5Yut8Kw0tp9DY9-QcYjlNQID; SUBP=0033WrSXqPxfM725Ws9jqgMF55529P9D9WWVQlloI5dKA59HvZPKfPwF5NHD95Qceo.cSo.cSK.XWs4DqcjMi--NiK.Xi-2Ri--ciKnRi-zNSoz4Soq4So-4S5tt; SSOLoginState=1734440864; ALF=1737032864; MLOGIN=1; XSRF-TOKEN=10fcd2; mweibo_short_token=f8fe1cdb01; M_WEIBOCN_PARAMS=oid%3D5083703672049076%26luicode%3D20000061%26lfid%3D5083703672049076%26uicode%3D20000061%26fid%3D5083703672049076'
         }
 
-        # self.name = input('请输入你要检索的微博词汇:')
-        self.name = search_key
+        self.xchead = {
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 10_3_1 like Mac OS X) AppleWebKit/603.1.30 (KHTML, like Gecko) Version/10.0 Mobile/14E304 Safari/602.1',
+        }
+
+        # self.search_key = input('请输入你要检索的微博词汇:')
         self.data = {
-            'containerid': '100103type=1&q={}',
+            'containerid': f'100103type=1&q={search_key}',
             'page_type': 'searchall',
             'page': None
         }
-        self.data['containerid'] = self.data['containerid'].format(self.name)
-
 
 
         # 一级评论的接口信息
@@ -60,14 +62,21 @@ class WeiBo:
         response = requests.get(self.url, params=self.data, headers=self.headers)
         if response.status_code == 200:
             json_data = response.json()
-            navbar_names = jsonpath(json_data, '$..channel_list[0:11]..name')
-            navbar_schemes = jsonpath(json_data, '$..channel_list[0:11]..scheme')
+            navbar_names = jsonpath(json_data, '$..channel_list[1:11]..name')
+            navbar_schemes = jsonpath(json_data, '$..channel_list[1:11]..scheme')
             # 建立一个空字典对象
             for name, scheme in zip(navbar_names, navbar_schemes):
                 # 二次处理url信息，替换链接头
-                old_str = 'sinaweibo://selectchannel'
                 new_str = 'https://m.weibo.cn/api/container/getIndex'
-                self.navbar_name_url_item[name] = scheme.replace(old_str, new_str)
+                _, query_string = scheme.split('?', 1)
+
+                if name == '综合':
+                    split_point = query_string.find('type')
+                    prefix = query_string[:split_point + len('type')]
+                    to_encode = query_string[split_point + len('type'):]
+                    query_string = prefix + urllib.parse.quote(to_encode)
+
+                self.navbar_name_url_item[name] = new_str+'?' + query_string
 
             # user_choice = input('请输入你想接入的接口(实时、用户、关注...):')
             # if user_choice == '实时':
@@ -75,13 +84,15 @@ class WeiBo:
 
     # 微博 实时板块 接口
     def real_time_api(self,page_number=None):
-        url = self.navbar_name_url_item['实时']
+        url = self.navbar_name_url_item['热门']  #  实时 综合
         params = {
             'page_type': 'searchall',
             'page': page_number,
         }
         while True:
             response = requests.get(url,params=params, headers=self.headers)
+            page = params['page']
+            print(f'正在抓取第{page}页，',response.url)
             page_number = 0
             if response.status_code == 200:
                 json_data = response.json()
@@ -120,7 +131,7 @@ class WeiBo:
             # 上一页的微博、评论获取完毕之后，开始翻页
             if page_number > 1:
                 params['page'] = page_number
-                time.sleep(random.uniform(1, 5))
+                time.sleep(random.uniform(1, 2))
             else:
                 print('====实时动态已获取完毕====')  # 虽然不太可能运行到这里，但改写还是得写
                 break
