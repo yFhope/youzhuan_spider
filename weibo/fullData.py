@@ -60,8 +60,8 @@ class WeiBo:
         response = requests.get(self.url, params=self.data, headers=self.headers)
         if response.status_code == 200:
             json_data = response.json()
-            navbar_names = jsonpath(json_data, '$..channel_list[1:11]..name')
-            navbar_schemes = jsonpath(json_data, '$..channel_list[1:11]..scheme')
+            navbar_names = jsonpath(json_data, '$..channel_list[0:11]..name')
+            navbar_schemes = jsonpath(json_data, '$..channel_list[0:11]..scheme')
             # 建立一个空字典对象
             for name, scheme in zip(navbar_names, navbar_schemes):
                 # 二次处理url信息，替换链接头
@@ -190,7 +190,7 @@ class WeiBo:
 
 
 if __name__ == '__main__':
-    key_list = ['郴州','高椅岭','东江湖','仰天湖','郴州酒店','郴州鱼粉','杀猪粉',]
+    key_list = ['高椅岭','郴州','东江湖','仰天湖','郴州酒店','郴州鱼粉','杀猪粉',]
     for key in key_list[:4]:
         weibo = WeiBo(key)
         weibo.main()
