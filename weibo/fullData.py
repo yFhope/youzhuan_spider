@@ -1,13 +1,20 @@
-import requests
+'''
+新浪微博
+-全量爬虫
+-所有关键词的全量数据
+['郴州','高椅岭','东江湖','仰天湖','郴州酒店','郴州鱼粉','杀猪粉',]
+'''
+
 import re
-# import pymysql
 import time
 import random
+import pymysql
+import requests
 from jsonpath import jsonpath
 
 
 class WeiBo:
-    def __init__(self):
+    def __init__(self,search_key):
         # 首页（搜索页）接口信息
         self.url = 'https://m.weibo.cn/api/container/getIndex'
         self.headers = {
@@ -17,7 +24,7 @@ class WeiBo:
         }
 
         # self.name = input('请输入你要检索的微博词汇:')
-        self.name = '高椅岭'
+        self.name = search_key
         self.data = {
             'containerid': '100103type=1&q={}',
             'page_type': 'searchall',
@@ -67,11 +74,14 @@ class WeiBo:
             #     self.real_time_api()
 
     # 微博 实时板块 接口
-    def real_time_api(self,page_number=1):
-        page_args = f'&page_type=searchall&page={page_number}'
-        url = self.navbar_name_url_item['实时'] + page_args
+    def real_time_api(self,page_number=None):
+        url = self.navbar_name_url_item['实时']
+        params = {
+            'page_type': 'searchall',
+            'page': page_number,
+        }
         while True:
-            response = requests.get(url, headers=self.headers)
+            response = requests.get(url,params=params, headers=self.headers)
             page_number = 0
             if response.status_code == 200:
                 json_data = response.json()
@@ -89,7 +99,6 @@ class WeiBo:
 
                 status_countrys = jsonpath(json_data, '$..cards[:].mblog..status_country')  # 用户IP所在国家
                 status_provinces = jsonpath(json_data, '$..cards[:].mblog..status_province')  # 用户IP所在省
-                # status_citys = jsonpath(json_data, '$..cards[:].mblog..status_city')  # 用户IP所在城市 - 不一定都有 舍弃
 
                 weibo_texts = jsonpath(json_data, '$..cards[:].mblog.text')  # 微博正文内容
                 textLengths = jsonpath(json_data, '$..cards[:].mblog.textLength')  # 正文文本长度
@@ -101,19 +110,17 @@ class WeiBo:
                 for text, name, bid in zip(weibo_texts,user_names,blog_ids):
                     # 二次处理文本信息，把标签全部去掉
                     new_text = re.sub('<.*?>', '', text)  # 微博正文
-
                     print(f'\033[1;35m{name}:  {new_text}\033[0m')  # 紫红色效果打印
-
                     # 获取一级评论
                     self.level1_data['id'] = bid
                     self.level1_data['mid'] = bid
                     self.level_1_comments()
 
+            # 下一次循环前更新翻页参数
             # 上一页的微博、评论获取完毕之后，开始翻页
             if page_number > 1:
-                self.data['page'] = page_number
+                params['page'] = page_number
                 time.sleep(random.uniform(1, 5))
-                self.real_time_api(page_number)
             else:
                 print('====实时动态已获取完毕====')  # 虽然不太可能运行到这里，但改写还是得写
                 break
@@ -131,7 +138,8 @@ class WeiBo:
                 cids = jsonpath(response.json(), '$..data[:].rootid')
                 for name, text, cid in zip(names, texts, cids):
                     new_name = re.sub('<.*?>', '', name)  # 正则处理表情包
-                    print(f'\033[1;32m\t\t{new_name} --1--> {text}\033[0m')  # 绿色效果打印
+                    new_text = re.sub('<.*?>', '', text)  # 正则处理表情包
+                    print(f'\033[1;32m\t\t{new_name} --1--> {new_text}\033[0m')  # 绿色效果打印
 
                     # 调用二级评论接口
                     time.sleep(random.uniform(1, 7))
@@ -144,53 +152,37 @@ class WeiBo:
 
                 # 1级评论接口 翻页 获取网页max_id作为下一页的翻页参数
                 max_id = jsonpath(response.json(), '$..data.max_id')[0]
-                # print('一级翻页id:', self.max_id)
-                self.level1_data['max_id'] = max_id
-                if self.level1_data['max_id'] == 0:
+                if max_id == 0:
                     print(f'\033[1;32m一级评论已全部获取完毕\033[0m')  # 绿色效果打印
                     break
-                else:
-                    # 1.3 递归调用，递归肯定会有程序报错的时候，所以我们要异常处理
-                    time.sleep(random.uniform(3, 9))
-                    self.level_1_comments()
+                # 下一次循环前更新翻页接口参数
+                self.level1_data['max_id'] = max_id
+                time.sleep(random.uniform(3, 9))
         except:
-            # print('\t\t========没有一级评论========')
             print(f'\033[1;31m\t\t========没有一级评论========\033[0m')  # 红色效果打印
 
     # 获取二级评论
     def level_2_comments(self):
+        # 循环 - 更新参数  - 翻页 - 简单模式
         while True:
-            second_response = requests.get(self.second_url, params=self.level2_data, headers=self.headers)
-            self.second_data_json = second_response.json()  # json数据类型
-            self.second_names = jsonpath(self.second_data_json, '$..data[:].user.screen_name')
-            self.second_textss = jsonpath(self.second_data_json, '$..data[:].text')
-            # print('\t\t\t\t', '-----------二级评论-----------')  # 分隔符
-            for self.second_name, self.second_texts in zip(self.second_names, self.second_textss):
-                self.second_text = re.sub('<.*?>', '', self.second_texts)  # 正则处理表情包
-                print('\t\t\t\t', self.second_name, '--2-->', self.second_text)
-                # 4 ****************保存****************
-                # self.save_weibo_data(screen_name=shishi,second_name=self.second_name, second_text=self.second_text)
-            # 2.1获取二级网页max_id作为下一页的翻页参数
-            self.second_max_id = jsonpath(self.second_data_json, '$..max_id')[0]
-            # print('\t\t二级翻页id:', self.second_max_id)
-            # 2.2翻页参数替换
-            self.level2_data['max_id'] = self.second_max_id
-            # 2.3 max_id=0时翻页结束，不等于0才递归
-            if self.level2_data['max_id'] in (0, 186494897570):  # 第一条评论的最后一条跟评的数据报的max_id不知道怎么会使变了，所以只能加进来，否则程序报错
+            response = requests.get(self.second_url, params=self.level2_data, headers=self.headers)
+            user_names = jsonpath(response.json(), '$..data[:].user.screen_name')
+            comment_texts = jsonpath(response.json(), '$..data[:].text')
+            # 遍历处理每一条二级用户评论数据
+            for uname, ctext in zip(user_names, comment_texts):
+                new_ctext = re.sub('<.*?>', '', ctext)  # 正则处理表情包
+                print('\t\t\t\t', uname, '--2-->', new_ctext)
+
+            # 获取二级网页max_id作为下一页的翻页参数
+            second_max_id = jsonpath(response.json(), '$..max_id')[0]
+            # max_id=0 时翻页结束，不等于0才递归
+            if second_max_id in [0, 186494897570]:  # 第一条评论的最后一条跟评的数据报的max_id不知道怎么会使变了，所以只能加进来，否则程序报错
                 print('\t\t\t\t=========二级评论获取完毕=========')
                 self.level2_data['max_id'] = 0
                 break
-            else:
-                time.sleep(random.uniform(2, 8))
-
-    # 保存方法。有时候没有二级评论，如果保存方法只在二级评论方法中，①不仅导致二级评论解析时报错，②还会导致一级评论也无法保存
-    # 什么时候需要单独保存一级评论？  --->  没有二级评论的时候，在异常处理中即可调用
-    # 如果有二级评论，保存方法就放在二级评论解析中即可
-    # def save_weibo_data(self, screen_name, weibo, first_name, first_text, second_name, second_text):
-    #     sql = "insert into weibo_all(用户, 微博, 一级评论者, 一级评论, 二级评论者, 二级评论) values(%s, %s, %s, %s, %s)"  # 占位符
-    #     data = [screen_name, weibo, first_name, first_text, second_name, second_text]  # 使用占位符插入数据，之前所有的代码前加self就是为了方便在类中共用变量，方便保存
-    #     self.cursor.execute(sql, data)  # data要tuple、list、dict类型
-    #     self.db.commit()
+            # 下一次循环前更新翻页接口参数
+            self.level2_data['max_id'] = second_max_id
+            time.sleep(random.uniform(2, 8))
 
     def main(self):
         self.get_navbar()
@@ -198,5 +190,7 @@ class WeiBo:
 
 
 if __name__ == '__main__':
-    weibo = WeiBo()
-    weibo.main()
+    key_list = ['郴州','高椅岭','东江湖','仰天湖','郴州酒店','郴州鱼粉','杀猪粉',]
+    for key in key_list[:4]:
+        weibo = WeiBo(key)
+        weibo.main()
