@@ -12,6 +12,10 @@ import pymysql
 import requests
 import urllib.parse
 from jsonpath import jsonpath
+from datetime import datetime
+
+from mytools.db_toolbox import SQLHelper
+from pymysql.err import IntegrityError
 
 
 class WeiBo:
@@ -55,6 +59,9 @@ class WeiBo:
 
         # 板块名称&对应的url
         self.navbar_name_url_item = {}
+
+        # 数据库
+        self.db = SQLHelper()
 
 
     # 提取导航栏 板块名称&对应的url
@@ -106,26 +113,58 @@ class WeiBo:
                 attitudes_counts = jsonpath(json_data, '$..cards[:].mblog..attitudes_count')  # 微博的点赞数
                 reposts_counts = jsonpath(json_data, '$..cards[:].mblog..reposts_count')  # 微博的转发数
                 release_times = jsonpath(json_data, '$..cards[:].mblog..created_at')  # 发表微博的时间
-
-
                 status_countrys = jsonpath(json_data, '$..cards[:].mblog..status_country')  # 用户IP所在国家
                 status_provinces = jsonpath(json_data, '$..cards[:].mblog..status_province')  # 用户IP所在省
-
                 weibo_texts = jsonpath(json_data, '$..cards[:].mblog.text')  # 微博正文内容
                 textLengths = jsonpath(json_data, '$..cards[:].mblog.textLength')  # 正文文本长度
-
                 # 跟进抓取评论信息用
                 blog_ids = jsonpath(json_data, '$..cards[:].mblog.id')  # 发表微博 文章的ID
+
                 # 获取翻页参数
                 page_number = jsonpath(json_data, '$..cardlistInfo.page')[0]
-                for text, name, bid in zip(weibo_texts,user_names,blog_ids):
-                    # 二次处理文本信息，把标签全部去掉
-                    new_text = re.sub('<.*?>', '', text)  # 微博正文
-                    print(f'\033[1;35m{name}:  {new_text}\033[0m')  # 紫红色效果打印
-                    # 获取一级评论
-                    self.level1_data['id'] = bid
-                    self.level1_data['mid'] = bid
-                    self.level_1_comments()
+
+                sql = '''insert into weibo_mainbody(
+                            blog_id,user_name,gender,followers_count,follow_count,sources,
+                            comments_count,attitudes_count,reposts_count,release_time,status_country,
+                            status_province,weibo_text,weibo_textLength) 
+                        values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)'''
+                for index in range(len(user_names)):
+                    try:
+                        uname = user_names[index]
+                        gender = genders[index]
+                        followers = followers_counts[index]
+                        follow_count = follow_counts[index]
+                        source = sources[index]
+                        comments = comments_counts[index]
+                        attitudes = attitudes_counts[index]
+                        reposts = reposts_counts[index]
+                        release_time = datetime.strptime(release_times[index], "%a %b %d %H:%M:%S %z %Y")
+                        status_country = status_countrys[index]
+                        status_province = status_provinces[index]
+                        weibo_text = re.sub('<.*?>', '', weibo_texts[index]) # 替换表情符号
+                        text_length = textLengths[index]
+                        blog_id = blog_ids[index]
+                    except IndexError as e:
+                        print(e)
+
+                    try:
+                        result = self.db.insert_one(sql,(blog_id,uname,gender,followers,follow_count,source,comments,attitudes,reposts
+                                                ,release_time,status_country,status_province,weibo_text,text_length,))
+                        print(blog_id,"入库成功" if result else "入库失败")
+
+                        # 获取一级评论
+                        # self.level1_data['id'] = blog_id
+                        # self.level1_data['mid'] = blog_id
+                        # self.level_1_comments()
+
+                    except IntegrityError:
+                        print("重复入库，不处理")
+
+                # for text, name, bid in zip(weibo_texts,user_names,blog_ids):
+                #     # 二次处理文本信息，把标签全部去掉
+                #     new_text = re.sub('<.*?>', '', text)  # 微博正文
+                #     print(f'\033[1;35m{name}:  {new_text}\033[0m')  # 紫红色效果打印
+
 
             # 下一次循环前更新翻页参数
             # 上一页的微博、评论获取完毕之后，开始翻页
