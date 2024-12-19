@@ -8,6 +8,8 @@
 import re
 import time
 import random
+from itertools import count
+
 import pymysql
 import requests
 import urllib.parse
@@ -19,7 +21,7 @@ from pymysql.err import IntegrityError
 
 
 class WeiBo:
-    def __init__(self,search_key):
+    def __init__(self, search_key):
         # 首页（搜索页）接口信息
         self.url = 'https://m.weibo.cn/api/container/getIndex'
         self.headers = {
@@ -38,7 +40,6 @@ class WeiBo:
             'page_type': 'searchall',
             'page': None
         }
-
 
         # 一级评论的接口信息
         self.first_url = 'https://m.weibo.cn/comments/hotflow'
@@ -62,7 +63,7 @@ class WeiBo:
 
         # 数据库
         self.db = SQLHelper()
-
+        self.search_key = search_key
 
     # 提取导航栏 板块名称&对应的url
     def get_navbar(self):
@@ -83,98 +84,86 @@ class WeiBo:
                     to_encode = query_string[split_point + len('type'):]
                     query_string = prefix + urllib.parse.quote(to_encode)
 
-                self.navbar_name_url_item[name] = new_str+'?' + query_string
-
-            # user_choice = input('请输入你想接入的接口(实时、用户、关注...):')
-            # if user_choice == '实时':
-            #     self.real_time_api()
+                self.navbar_name_url_item[name] = new_str + '?' + query_string
 
     # 微博 实时板块 接口
-    def real_time_api(self,page_number=None):
-        url = self.navbar_name_url_item['热门']  #  实时 综合
+    def real_time_api(self, page_number=None):
+        url = self.navbar_name_url_item['实时']  # 实时 综合
         params = {
             'page_type': 'searchall',
             'page': page_number,
         }
         while True:
-            response = requests.get(url,params=params, headers=self.headers)
+            response = requests.get(url, params=params, headers=self.headers)
             page = params['page']
-            print(f'正在抓取第{page}页，',response.url)
+            print(f'正在抓取第{page}页，', response.url)
             page_number = 0
             if response.status_code == 200:
                 json_data = response.json()
-                user_names = jsonpath(json_data, '$..cards[:].mblog..screen_name')  # 发表微博的用户昵称
-                genders = jsonpath(json_data, '$..cards[:].mblog..gender')  # 发表微博的用户性别 m-男 f-女
-                followers_counts = jsonpath(json_data, '$..cards[:].mblog..followers_count')  # 用户粉丝数
-                follow_counts = jsonpath(json_data, '$..cards[:].mblog..follow_count')  # 用户关注数 关注了多少人
-                sources = jsonpath(json_data, '$..cards[:].mblog.source')  # 发表微博的设备信息
-
-                comments_counts = jsonpath(json_data, '$..cards[:].mblog..comments_count')  # 微博的评论数
-                attitudes_counts = jsonpath(json_data, '$..cards[:].mblog..attitudes_count')  # 微博的点赞数
-                reposts_counts = jsonpath(json_data, '$..cards[:].mblog..reposts_count')  # 微博的转发数
-                release_times = jsonpath(json_data, '$..cards[:].mblog..created_at')  # 发表微博的时间
-                status_countrys = jsonpath(json_data, '$..cards[:].mblog..status_country')  # 用户IP所在国家
-                status_provinces = jsonpath(json_data, '$..cards[:].mblog..status_province')  # 用户IP所在省
-                weibo_texts = jsonpath(json_data, '$..cards[:].mblog.text')  # 微博正文内容
-                textLengths = jsonpath(json_data, '$..cards[:].mblog.textLength')  # 正文文本长度
-                # 跟进抓取评论信息用
-                blog_ids = jsonpath(json_data, '$..cards[:].mblog.id')  # 发表微博 文章的ID
-
-                # 获取翻页参数
-                page_number = jsonpath(json_data, '$..cardlistInfo.page')[0]
-
-                sql = '''insert into weibo_mainbody(
-                            blog_id,user_name,gender,followers_count,follow_count,sources,
-                            comments_count,attitudes_count,reposts_count,release_time,status_country,
-                            status_province,weibo_text,weibo_textLength) 
-                        values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)'''
-                for index in range(len(user_names)):
+                # 获取下一页翻页参数
+                page_number = jsonpath(json_data, '$..cardlistInfo.page')
+                page_number = page_number[0] if page_number else 0
+                # 微博正文主体内容+微博发布者信息
+                cards = jsonpath(json_data, '$..cards')
+                for card in cards[0]:
                     try:
-                        uname = user_names[index]
-                        gender = genders[index]
-                        followers = followers_counts[index]
-                        follow_count = follow_counts[index]
-                        source = sources[index]
-                        comments = comments_counts[index]
-                        attitudes = attitudes_counts[index]
-                        reposts = reposts_counts[index]
-                        release_time = datetime.strptime(release_times[index], "%a %b %d %H:%M:%S %z %Y")
-                        status_country = status_countrys[index]
-                        status_province = status_provinces[index]
-                        weibo_text = re.sub('<.*?>', '', weibo_texts[index]) # 替换表情符号
-                        text_length = textLengths[index]
-                        blog_id = blog_ids[index]
-                    except IndexError as e:
-                        print(e)
+                        release_time = jsonpath(card, '$..mblog..created_at')[0]  # 发表微博的时间
+                        r_time = datetime.strptime(release_time, "%a %b %d %H:%M:%S %z %Y")
+
+                        uname = jsonpath(card, '$..mblog..screen_name')[0]  # 发表微博的用户昵称
+                        gender = jsonpath(card, '$..mblog..gender')[0]  # 发表微博的用户性别 m-男 f-女
+                        followers = jsonpath(card, '$..mblog..followers_count')[0]  # 用户粉丝数
+                        follow_count = jsonpath(card, '$..mblog..follow_count')[0]  # 用户关注数 关注了多少人
+                        source = jsonpath(card, '$..mblog.source')[0]  # 发表微博的设备信息
+                        comments = jsonpath(card, '$..mblog..comments_count')[0]  # 微博的评论数
+                        attitudes = jsonpath(card, '$..mblog..attitudes_count')[0]  # 微博的点赞数
+                        reposts = jsonpath(card, '$..mblog..reposts_count')[0]  # 微博的转发数
+
+                        status_country = jsonpath(card, '$..mblog..status_country')  # 用户IP所在国家
+                        status_province = jsonpath(card, '$..mblog..status_province')  # 用户IP所在省
+                        status_country = status_country[0] if status_country else ''
+                        status_province = status_province[0] if status_province else ''
+
+                        text_length = jsonpath(card, '$..mblog.textLength')  # 正文文本长度
+                        text_length = text_length[0] if text_length else None
+                        weibo_text = jsonpath(card, '$..mblog.text')[0]  # 微博正文内容
+                        weibo_text = re.sub('<.*?>', '', weibo_text)  # 替换表情符号
+
+                        # 跟进抓取评论信息用
+                        blog_id = jsonpath(card, '$..mblog.id')[0]  # 发表微博 文章的ID
+                    except Exception as e:
+                        print("数据解析错误---->>>", e)
+                        continue
 
                     try:
-                        result = self.db.insert_one(sql,(blog_id,uname,gender,followers,follow_count,source,comments,attitudes,reposts
-                                                ,release_time,status_country,status_province,weibo_text,text_length,))
-                        print(blog_id,"入库成功" if result else "入库失败")
+                        #  存储入库
+                        sql = '''insert into weibo_mainbody(
+                                             blog_id,user_name,gender,followers_count,follow_count,sources,
+                                             comments_count,attitudes_count,reposts_count,release_time,status_country,
+                                             status_province,weibo_text,weibo_textLength,search_key) 
+                                 values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)'''
+                        qdata = (blog_id, uname, gender, followers, follow_count, source, comments, attitudes, reposts,
+                                 r_time, status_country, status_province, weibo_text, text_length, self.search_key)
+                        result = self.db.insert_one(sql, qdata)
+                        print(blog_id, "入库成功" if result else "入库失败")
+                        print(qdata)
+                        print('---' * 50)
 
                         # 获取一级评论
                         # self.level1_data['id'] = blog_id
                         # self.level1_data['mid'] = blog_id
                         # self.level_1_comments()
-
                     except IntegrityError:
                         print("重复入库，不处理")
 
-                # for text, name, bid in zip(weibo_texts,user_names,blog_ids):
-                #     # 二次处理文本信息，把标签全部去掉
-                #     new_text = re.sub('<.*?>', '', text)  # 微博正文
-                #     print(f'\033[1;35m{name}:  {new_text}\033[0m')  # 紫红色效果打印
-
-
             # 下一次循环前更新翻页参数
-            # 上一页的微博、评论获取完毕之后，开始翻页
-            if page_number > 1:
+            # 上一页的微博、评论获取完毕之后，开始翻页 大于1 小于50
+            if 1 < page_number < 50:
                 params['page'] = page_number
-                time.sleep(random.uniform(1, 2))
+                time.sleep(random.uniform(3, 7))
             else:
                 print('====实时动态已获取完毕====')  # 虽然不太可能运行到这里，但改写还是得写
                 break
-
 
     # 获取level_1_comments
     def level_1_comments(self):
@@ -237,10 +226,11 @@ class WeiBo:
     def main(self):
         self.get_navbar()
         self.real_time_api()
+        # self.real_time_api(49)
 
 
 if __name__ == '__main__':
-    key_list = ['高椅岭','郴州','东江湖','仰天湖','郴州酒店','郴州鱼粉','杀猪粉',]
-    for key in key_list[:4]:
+    key_list = ['高椅岭', '郴州', '东江湖', '仰天湖', '郴州酒店', '郴州鱼粉', '杀猪粉', ]
+    for key in key_list[4:]:
         weibo = WeiBo(key)
         weibo.main()
