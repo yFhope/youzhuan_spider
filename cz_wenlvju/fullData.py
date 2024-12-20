@@ -1,21 +1,18 @@
 '''
 郴州文旅爬虫
 - todo 郴州要览 + 通知公告 两个板块爬虫
--  增量爬虫 - 新增数据
+-  全量爬虫
 - 只抓发文数量，不抓详情内容
 
 '''
-
-import time
-import functools
-
 import requests
 from lxml import etree
-from fake_useragent import UserAgent
 from datetime import datetime
+from fake_useragent import UserAgent
+from pymysql.err import IntegrityError
+
 from mytools.tools import retry
 from mytools.db_toolbox import SQLHelper
-from pymysql.err import IntegrityError
 
 # 列表页url
 # index_url = 'http://www.app.czs.gov.cn/lywsj/zwgk/lydt/default.jsp?pager.offset=0&pager.desc=false'
@@ -23,15 +20,16 @@ from pymysql.err import IntegrityError
 db = SQLHelper()
 
 plate_name = {
-    'tzgg':'通知公告',
-    'czyl':'郴州要览',
+    'tzgg':('通知公告',721),
+    'czyl':('郴州要览',5091),
+    # 'tslm':'xxx',
     # 'wmcj':('文明创建',150),
 }
 
 # 通知公告
 url_list = {
-    'tzgg':'http://www.app.czs.gov.cn/lywsj/zwgk/tzgg/default.jsp?pager.offset=0&pager.desc=false',  # 通知公告
-    'czyl':'http://www.app.czs.gov.cn/lywsj/zwgk/lydt/default.jsp?pager.offset=0&pager.desc=false',  # 郴州要览
+    'tzgg':'http://www.app.czs.gov.cn/lywsj/zwgk/tzgg/default.jsp?pager.offset={}&pager.desc=false',  # 通知公告
+    'czyl':'http://www.app.czs.gov.cn/lywsj/zwgk/lydt/default.jsp?pager.offset={}&pager.desc=false',  # 郴州要览
     # 'tslm':'xxx',
     # 'wmcj':'http://www.app.czs.gov.cn/lywsj/zthd/57126/index.jsp?pager.offset={}&pager.desc=false',   # 文明创建
 }
@@ -67,10 +65,9 @@ def parse_list_page(url):
     return item
 
 def save_data(plate_name,title,href,rtime):
-    sql = 'insert into wenlvju(plate_name,title,url,release_time,ctime) values(%s,%s,%s,%s,%s)'
+    sql = 'insert into cz_wenlvju(plate_name,title,url,release_time,ctime) values(%s,%s,%s,%s,%s)'
     rtime = datetime.strptime(rtime, "%Y-%m-%d")
     ctime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
     try:
         db.insert_one(sql,(plate_name,title,href,rtime,ctime))
     except IntegrityError:
@@ -79,12 +76,14 @@ def save_data(plate_name,title,href,rtime):
 
 def start():
     for key,index_url in url_list.items():
-        p_name = plate_name[key]
-        print("========================================================================================================")
-        print("正在抓取：",index_url)
-        item = parse_list_page(index_url)
-        for title,href,rtime in zip(item['titles'],item['hrefs'],item['release_time']):
-            save_data(p_name,title,href,rtime)
+        p_name = plate_name[key][0]
+        page_number = plate_name[key][1]
+        for offset in range(0,page_number,10):  # 只抓几页做测试
+            print("========================================================================================================")
+            print("正在抓取：",index_url.format(offset))
+            item = parse_list_page(index_url.format(offset))
+            for title,href,rtime in zip(item['titles'],item['hrefs'],item['release_time']):
+                save_data(p_name,title,href,rtime)
 
 
 

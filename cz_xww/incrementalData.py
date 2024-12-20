@@ -89,7 +89,7 @@ def get_detail_page_data(detail_url, plate_name=None):
 
 # 存储数据到数据库
 def save_data(data, plate_name=None):
-    sql = 'insert into czxww(plate_name,title,author,source,release_date,content,ctime) values(%s,%s,%s,%s,%s,%s,%s)'
+    sql = 'insert into cz_xww(plate_name,title,author,source,release_date,content,ctime) values(%s,%s,%s,%s,%s,%s,%s)'
     results = db.insert_one(sql, list(data.values()))
 
 def start():

@@ -94,7 +94,7 @@ def parse_detail_page(url,pname):
 
 def save_data(data):
     print(data)
-    sql = 'insert into shizhenfu(plate_name,title,source,release_time,url,content,ctime) values(%s,%s,%s,%s,%s,%s,%s)'
+    sql = 'insert into cz_shizhenfu(plate_name,title,source,release_time,url,content,ctime) values(%s,%s,%s,%s,%s,%s,%s)'
     try:
         results = db.insert_one(sql, list(data.values()))
     except IntegrityError:
